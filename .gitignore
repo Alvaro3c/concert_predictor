@@ -1,0 +1,47 @@
+# Entorno virtual
+venv/
+env/
+.venv/
+
+# Variables de entorno
+.env
+.env.*
+
+# Cachés de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Datos — se versiona la estructura pero no el contenido
+data/raw/*
+data/processed/*
+data/interim/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/interim/.gitkeep
+
+# Modelos de ML (pueden pesar GBs)
+*.bin
+*.pt
+*.pth
+*.pkl
+*.h5
+*.safetensors
+
+# Tests y cobertura
+.pytest_cache/
+.coverage
+coverage/
+
+# Logs
+logs/
+*.log
+
+# IDEs
+.vscode/
+.idea/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
