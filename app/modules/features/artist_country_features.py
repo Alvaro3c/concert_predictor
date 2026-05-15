@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from app.libraries.date_utils import parsear_fecha
+from app.libraries.date_utils import parsear_fecha, obtener_estacion
 from app.libraries.gap_utils import (
     calcular_gaps,
     gap_medio,
@@ -63,12 +63,36 @@ def calcular_features_artista_pais(
 
     gaps = calcular_gaps(fechas_previas_pais)
     gap_medio_valor = gap_medio(gaps)
+    gap_std_valor = gap_std(gaps)
     ultimo_gap_valor = ultimo_gap(gaps)
 
     if ultimo_gap_valor is not None and gap_medio_valor is not None and gap_medio_valor > 0:
         tendencia_gap = round(ultimo_gap_valor / gap_medio_valor, 4)
     else:
         tendencia_gap = None
+
+    # Coeficiente de variación: mide la irregularidad del patrón de visitas.
+    # Un artista muy regular tendrá un valor cercano a 0; uno impredecible, cercano a 1 o mayor.
+    if gap_std_valor is not None and gap_medio_valor is not None and gap_medio_valor > 0:
+        gap_coeficiente_variacion = round(gap_std_valor / gap_medio_valor, 4)
+    else:
+        gap_coeficiente_variacion = None
+
+    # Patrón estacional de visitas al país
+    estacion_actual = obtener_estacion(fecha_actual)
+    estaciones_visitas_previas = [obtener_estacion(fecha) for fecha in fechas_previas_pais]
+
+    if estaciones_visitas_previas:
+        total_visitas = len(estaciones_visitas_previas)
+        visitas_misma_estacion = sum(1 for est in estaciones_visitas_previas if est == estacion_actual)
+        ratio_misma_estacion = round(visitas_misma_estacion / total_visitas, 4)
+
+        conteo_por_estacion = Counter(estaciones_visitas_previas)
+        max_visitas_estacion = max(conteo_por_estacion.values())
+        concentracion_estacional = round(max_visitas_estacion / total_visitas, 4)
+    else:
+        ratio_misma_estacion = None
+        concentracion_estacional = None
 
     # Ranking del país: posición 1-based usando dense rank por visitas descendentes
     if total_previos > 0 and visitas_previas > 0:
@@ -87,11 +111,14 @@ def calcular_features_artista_pais(
         "dias_desde_ultima_visita_pais": dias_desde_ultimo_concierto(fechas_previas_pais, fecha_actual),
         "gap_medio_pais": gap_medio_valor,
         "gap_mediano_pais": gap_mediano(gaps),
-        "gap_std_pais": gap_std(gaps),
+        "gap_std_pais": gap_std_valor,
         "gap_min_pais": gap_minimo(gaps),
         "gap_max_pais": gap_maximo(gaps),
         "ultimo_gap_pais": ultimo_gap_valor,
         "tendencia_gap_pais": tendencia_gap,
+        "gap_coeficiente_variacion_pais": gap_coeficiente_variacion,
+        "ratio_visitas_misma_estacion_pais": ratio_misma_estacion,
+        "concentracion_estacional_pais": concentracion_estacional,
         "proporcion_visitas_pais": round(visitas_previas / total_previos, 4) if total_previos > 0 else None,
         "rank_pais_para_artista": rank_pais,
     }
@@ -116,6 +143,9 @@ NOMBRES_FEATURES_COUNTRY = (
     "gap_max_pais",
     "ultimo_gap_pais",
     "tendencia_gap_pais",
+    "gap_coeficiente_variacion_pais",
+    "ratio_visitas_misma_estacion_pais",
+    "concentracion_estacional_pais",
     "proporcion_visitas_pais",
     "rank_pais_para_artista",
 )

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from lightgbm import LGBMRegressor, early_stopping, log_evaluation
+from lightgbm import LGBMClassifier, early_stopping, log_evaluation
 from sklearn.preprocessing import LabelEncoder
 
 from app.libraries.train_data_validation import (
@@ -22,10 +22,27 @@ from app.libraries.train_feature_utils import (
     encode_boolean_flags,
     encode_season,
 )
-from app.libraries.train_metrics_utils import compute_regression_metrics, log_metrics_to_file
+from app.libraries.train_metrics_utils import (
+    LIMITE_TRAMO_A,
+    LIMITE_TRAMO_B,
+    UMBRAL_GAP_TRAMO_D,
+    UMBRAL_VISITAS_TRAMO_D,
+    compute_classification_metrics,
+    construir_mascara_tramo_d,
+    log_metrics_to_file,
+)
 from app.libraries.train_model_io import save_feature_importance, save_model
 from app.libraries.train_split_utils import temporal_split_by_artist
-from config import FECHA_FIN_COVID, FECHA_INICIO_COVID, FILTRAR_GAPS_COVID
+from app.libraries.train_hyperparameter_utils import buscar_hiperparametros
+from config import (
+    FECHA_FIN_COVID,
+    FECHA_INICIO_COVID,
+    FILTRAR_GAPS_COVID,
+    OPTIMIZAR_HIPERPARAMETROS,
+    OPTUNA_TRIALS,
+    UMBRAL_TRAMO_B,
+    UMBRAL_TRAMO_C,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +62,7 @@ COLUMNA_FECHA_SIGUIENTE_DT = "_fecha_siguiente_dt"
 ANNIOS_WARMUP = 3
 
 DIAS_MINIMO_GAP = 7
-DIAS_MAXIMO_GAP = 1095
+DIAS_MAXIMO_GAP = 1460
 
 COLUMNAS_BOOLEANAS = [
     "en_gira_activa",
@@ -61,11 +78,34 @@ PARAMETROS_LIGHTGBM: dict = {
     "min_child_samples": 20,
     "random_state": 42,
     "verbosity": -1,
+    "class_weight": "balanced",
 }
 RONDAS_EARLY_STOPPING = 50
 PERIODO_LOG = 100
 
 # Encoders reutilizables entre entrenamiento e inferencia
+
+
+def _aplicar_umbrales(proba: np.ndarray, clases: np.ndarray) -> str:
+    """
+    Aplica umbrales de decisión personalizados a las probabilidades del clasificador.
+
+    En lugar de elegir siempre la clase con mayor probabilidad (que suele ser A
+    porque es la mayoritaria), comprueba primero si C o B superan sus umbrales.
+    El orden es: C → B → clase con mayor probabilidad.
+    Esto aumenta el recall de B y C a costa de reducir el de A.
+    """
+    indice_c = np.where(clases == "C")[0]
+    indice_b = np.where(clases == "B")[0]
+
+    prob_c = float(proba[indice_c[0]]) if len(indice_c) > 0 else 0.0
+    prob_b = float(proba[indice_b[0]]) if len(indice_b) > 0 else 0.0
+
+    if prob_c >= UMBRAL_TRAMO_C:
+        return "C"
+    if prob_b >= UMBRAL_TRAMO_B:
+        return "B"
+    return str(clases[np.argmax(proba)])
 _encoder_artista = LabelEncoder()
 _encoder_pais = LabelEncoder()
 
@@ -217,8 +257,17 @@ def preparar_features(dataframe: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series,
         columns=[COLUMNA_FECHA_DT, COLUMNA_FECHA_SIGUIENTE_DT]
     )
 
-    # Transformar target a escala logarítmica — mejora el aprendizaje con distribuciones sesgadas
-    dataframe_copia[NOMBRE_TARGET] = np.log1p(dataframe_copia[NOMBRE_TARGET])
+    # Asignar etiqueta de tramo como target: Tramo D por regla, A/B/C por días
+    dias = dataframe_copia[NOMBRE_TARGET].values
+    mascara_tramo_d = (
+        (dataframe_copia["visitas_previas_al_pais"].fillna(0).astype(float) <= UMBRAL_VISITAS_TRAMO_D) |
+        (dataframe_copia["gap_medio_pais"].fillna(0) > UMBRAL_GAP_TRAMO_D)
+    ).values
+    dataframe_copia[NOMBRE_TARGET] = np.where(
+        mascara_tramo_d,
+        "D",
+        np.where(dias < LIMITE_TRAMO_A, "A", np.where(dias < LIMITE_TRAMO_B, "B", "C"))
+    )
 
     columnas_excluidas = {NOMBRE_TARGET, COLUMNA_FECHA}
     nombres_features = [
@@ -246,7 +295,7 @@ def entrenar_lightgbm(
     features_val: pd.DataFrame,
     target_val: pd.Series,
     parametros: dict | None = None,
-) -> LGBMRegressor:
+) -> LGBMClassifier:
     """
     Entrena un LGBMRegressor con early stopping evaluado sobre el conjunto de validación.
 
@@ -267,7 +316,7 @@ def entrenar_lightgbm(
         len(features_val),
     )
 
-    modelo = LGBMRegressor(**params_entrenamiento)
+    modelo = LGBMClassifier(**params_entrenamiento)
     modelo.fit(
         features_train,
         target_train,
@@ -306,22 +355,34 @@ def evaluar_modelo(
     directorio = Path(directorio_salida)
     directorio.mkdir(parents=True, exist_ok=True)
 
-    predicciones_raw = modelo.predict(features_test)
-    # Revertir la transformación log1p para obtener días reales interpretables
-    predicciones_log = np.maximum(predicciones_raw, 0)
-    predicciones = np.expm1(predicciones_log)
-    target_dias = np.expm1(target_test.values)
+    probabilidades = modelo.predict_proba(features_test[nombres_features])
+    clases = modelo.classes_
+    predicciones_modelo = np.array([
+        _aplicar_umbrales(fila_proba, clases)
+        for fila_proba in probabilidades
+    ])
 
-    metricas = compute_regression_metrics(target_dias, predicciones)
+    # Aplicar regla Tramo D como postprocesado — sobreescribe la predicción del modelo
+    mascara_d = construir_mascara_tramo_d(
+        features_test["visitas_previas_al_pais"].values,
+        features_test["gap_medio_pais"].values,
+    )
+    predicciones_finales = np.where(mascara_d, "D", predicciones_modelo)
+
+    metricas = compute_classification_metrics(
+        target_tramos=target_test.values,
+        predicciones_tramos=predicciones_finales,
+    )
+
     log_metrics_to_file(metricas, directorio / NOMBRE_FICHERO_METRICAS)
     save_feature_importance(modelo, nombres_features, directorio / NOMBRE_FICHERO_IMPORTANCIA)
 
     logger.info(
-        "Evaluación completada — MAE: %.1f días | RMSE: %.1f días | R²: %.4f | MAPE: %s%%",
-        metricas["mae"],
-        metricas["rmse"],
-        metricas["r2"],
-        f"{metricas['mape']:.2f}" if metricas["mape"] is not None else "N/A",
+        "Evaluación completada — Accuracy: %.2f%% | Recall A: %.2f%% | Recall B: %.2f%% | Recall C: %.2f%%",
+        (metricas["bucket_accuracy_global"] or 0) * 100,
+        (metricas["bucket_accuracy_por_tramo"].get("A") or 0) * 100,
+        (metricas["bucket_accuracy_por_tramo"].get("B") or 0) * 100,
+        (metricas["bucket_accuracy_por_tramo"].get("C") or 0) * 100,
     )
     return metricas
 
@@ -344,15 +405,15 @@ def train_pipeline(ruta_jsonl: str, directorio_salida: str) -> dict:
 
     Retorna un dict con las métricas de evaluación y la ruta del modelo guardado.
     """
-    print(f"[1/6] Cargando dataset: {ruta_jsonl}", flush=True)
+    print(f"[1/7] Cargando dataset: {ruta_jsonl}", flush=True)
     dataframe = cargar_y_validar_dataset(ruta_jsonl)
-    print(f"[1/6] Dataset cargado — {len(dataframe)} registros, {dataframe['artista'].nunique()} artistas", flush=True)
+    print(f"[1/7] Dataset cargado — {len(dataframe)} registros, {dataframe['artista'].nunique()} artistas", flush=True)
 
-    print("[2/6] Calculando features y target...", flush=True)
+    print("[2/7] Calculando features y target...", flush=True)
     features_df, target_serie, nombres_features = preparar_features(dataframe)
-    print(f"[2/6] Features listas — {len(features_df)} filas tras warmup, {len(nombres_features)} features", flush=True)
+    print(f"[2/7] Features listas — {len(features_df)} filas tras warmup, {len(nombres_features)} features", flush=True)
 
-    print("[3/6] Dividiendo train/test temporalmente por artista...", flush=True)
+    print("[3/7] Dividiendo train/test temporalmente por artista...", flush=True)
     df_para_split = features_df.assign(**{NOMBRE_TARGET: target_serie.values})
     train_df, test_df = temporal_split_by_artist(
         df_para_split, COLUMNA_ARTISTA, COLUMNA_FECHA, ratio_train=0.8
@@ -363,24 +424,51 @@ def train_pipeline(ruta_jsonl: str, directorio_salida: str) -> dict:
             "El conjunto de test quedó vacío tras el split. "
             "Se necesitan más datos o artistas con más de un concierto post-warmup."
         )
-    print(f"[3/6] Split completado — Train: {len(train_df)} filas | Test: {len(test_df)} filas", flush=True)
+
+    # El Tramo D se excluye del entrenamiento — es una regla explícita, no algo que el modelo aprenda
+    filas_train_antes = len(train_df)
+    train_df = train_df[train_df[NOMBRE_TARGET] != "D"].reset_index(drop=True)
+    print(
+        f"[3/7] Split completado — Train: {len(train_df)} filas ({filas_train_antes - len(train_df)} Tramo D excluidos) | Test: {len(test_df)} filas",
+        flush=True,
+    )
 
     features_train = train_df[nombres_features]
     target_train = train_df[NOMBRE_TARGET]
     features_test = test_df[nombres_features]
     target_test = test_df[NOMBRE_TARGET]
 
-    print("[4/6] Entrenando LightGBM con early stopping...", flush=True)
-    modelo = entrenar_lightgbm(features_train, target_train, features_test, target_test)
-    print(f"[4/6] Entrenamiento completado — mejor iteración: {modelo.best_iteration_}", flush=True)
+    # El eval_set para early stopping no puede contener Tramo D (clase no vista en train)
+    mascara_val_sin_d = target_test != "D"
+    features_val = features_test[mascara_val_sin_d]
+    target_val = target_test[mascara_val_sin_d]
 
-    print("[5/6] Evaluando modelo y guardando métricas...", flush=True)
+    mejores_params: dict | None = None
+    if OPTIMIZAR_HIPERPARAMETROS:
+        print(f"[4/7] Buscando hiperparámetros óptimos con Optuna ({OPTUNA_TRIALS} trials)...", flush=True)
+        mejores_params = buscar_hiperparametros(
+            features_train, target_train,
+            features_val, target_val,
+            num_trials=OPTUNA_TRIALS,
+        )
+        print(f"[4/7] Mejores parámetros: {mejores_params}", flush=True)
+    else:
+        print("[4/7] Búsqueda de hiperparámetros desactivada (OPTIMIZAR_HIPERPARAMETROS=False)", flush=True)
+
+    print("[5/7] Entrenando LightGBM clasificador con early stopping...", flush=True)
+    modelo = entrenar_lightgbm(features_train, target_train, features_val, target_val, mejores_params)
+    print(f"[5/7] Entrenamiento completado — mejor iteración: {modelo.best_iteration_}", flush=True)
+
+    print("[6/7] Evaluando modelo y guardando métricas...", flush=True)
     metricas = evaluar_modelo(modelo, features_test, target_test, nombres_features, directorio_salida)
-    print(f"[5/6] MAE: {metricas['mae']:.1f} días | RMSE: {metricas['rmse']:.1f} | R²: {metricas['r2']:.4f}", flush=True)
+    print(
+        f"[6/7] Accuracy global: {(metricas['bucket_accuracy_global'] or 0) * 100:.1f}% | Recall A: {(metricas['bucket_accuracy_por_tramo'].get('A') or 0) * 100:.1f}% | Recall B: {(metricas['bucket_accuracy_por_tramo'].get('B') or 0) * 100:.1f}% | Recall C: {(metricas['bucket_accuracy_por_tramo'].get('C') or 0) * 100:.1f}%",
+        flush=True,
+    )
 
-    print("[6/6] Guardando modelo en disco...", flush=True)
+    print("[7/7] Guardando modelo en disco...", flush=True)
     ruta_modelo = Path(directorio_salida) / NOMBRE_FICHERO_MODELO
     save_model(modelo, ruta_modelo)
-    print(f"[6/6] Modelo guardado en {ruta_modelo}", flush=True)
+    print(f"[7/7] Modelo guardado en {ruta_modelo}", flush=True)
 
     return {"metricas": metricas, "ruta_modelo": str(ruta_modelo)}

@@ -89,6 +89,46 @@ def paises_distintos_en_ventana(
     return len(paises_en_ventana)
 
 
+def calcular_ratio_expansion_artista(
+    fechas: list[datetime],
+    fecha_actual: datetime,
+) -> float | None:
+    """
+    Calcula el ratio de expansión/contracción de la carrera de un artista.
+
+    Compara la tasa de conciertos por año en los últimos 2 años con la tasa
+    del período anterior (de hace 2 a 5 años).
+
+    Fórmula: (conciertos_ultimos_2_años / 2) / (conciertos_de_2_a_5_años / 3)
+
+    Resultado:
+        > 1.0 → expansión (el artista está más activo ahora que antes)
+        ≈ 1.0 → estable
+        < 1.0 → contracción o hiato (el artista está menos activo que antes)
+
+    Devuelve None si no hay conciertos en la ventana 2-5 años (datos insuficientes).
+
+    Todas las fechas de la lista deben ser estrictamente anteriores a fecha_actual.
+    """
+    if not fechas:
+        return None
+
+    serie = pd.Series(fechas)
+    limite_2_años = fecha_actual - timedelta(days=730)
+    limite_5_años = fecha_actual - timedelta(days=1825)
+
+    conciertos_recientes = int((serie >= limite_2_años).sum())
+    conciertos_anteriores = int(((serie >= limite_5_años) & (serie < limite_2_años)).sum())
+
+    tasa_reciente = conciertos_recientes / 2.0
+    tasa_anterior = conciertos_anteriores / 3.0
+
+    if tasa_anterior == 0:
+        return None
+
+    return round(tasa_reciente / tasa_anterior, 4)
+
+
 def años_observados_artista(fechas: list[datetime], fecha_actual: datetime) -> float | None:
     """
     Calcula los años transcurridos entre el primer concierto conocido y fecha_actual.

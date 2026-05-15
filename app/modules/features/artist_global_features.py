@@ -10,6 +10,7 @@ from app.libraries.window_utils import (
     conciertos_en_ventana,
     dias_desde_ultimo_concierto,
     calcular_tendencia_actividad,
+    calcular_ratio_expansion_artista,
     años_observados_artista,
 )
 
@@ -50,6 +51,7 @@ def calcular_features_artista_global(
         "conciertos_ultimos_5_años": conciertos_en_ventana(fechas_previas, fecha_actual, 1825),
         "dias_desde_ultimo_concierto_global": dias_desde_ultimo_concierto(fechas_previas, fecha_actual),
         "tendencia_actividad": calcular_tendencia_actividad(fechas_previas, fecha_actual),
+        "ratio_expansion_artista": calcular_ratio_expansion_artista(fechas_previas, fecha_actual),
         "años_observados_artista": años_observados_artista(fechas_previas, fecha_actual),
     }
 
@@ -122,6 +124,7 @@ def enriquecer_conciertos() -> dict:
                     "conciertos_ultimos_5_años",
                     "dias_desde_ultimo_concierto_global",
                     "tendencia_actividad",
+                    "ratio_expansion_artista",
                     "años_observados_artista",
                 ):
                     registro_enriquecido[nombre_feature] = None
