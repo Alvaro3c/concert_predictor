@@ -18,11 +18,9 @@ from app.libraries.scrapper_utils import (
 BASE_URL = "https://www.concertarchives.org/bands"
 
 
-def run(artist_name: str, until_year: int | None = None) -> dict:
+def _scrapear_artista(artist_name: str, until_year: int | None, sesion, filepath: str) -> dict:
     slug = artist_to_slug(artist_name)
     url_base = f"{BASE_URL}/{slug}"
-    filepath = "data/raw/concerts.jsonl"
-    sesion = crear_sesion()
 
     print(f"[scraper] Iniciando scraping: {artist_name} (hasta_año: {until_year})")
     print(f"[scraper] Página 1 → {url_base}")
@@ -53,9 +51,30 @@ def run(artist_name: str, until_year: int | None = None) -> dict:
     return {
         "artista": artist_name,
         "slug": slug,
-        "hasta_año": until_year,
         "paginas_scrapeadas": paginas_scrapeadas,
         "nuevos_registros": total_guardado,
         "duplicados_evitados_esta_sesion": duplicados_omitidos,
+    }
+
+
+def scrapear_conciertos(artists_names: list[str], until_year: int | None = None) -> dict:
+    filepath = "data/raw/concerts.jsonl"
+    sesion = crear_sesion()
+    resultados = []
+    artistas_fallidos = []
+
+    for artist_name in artists_names:
+        try:
+            resultado = _scrapear_artista(artist_name, until_year, sesion, filepath)
+            resultados.append(resultado)
+        except Exception as error:
+            print(f"[scraper] Error con artista '{artist_name}': {error}. Continuando con el siguiente.")
+            artistas_fallidos.append({"artista": artist_name, "error": str(error)})
+
+    return {
+        "hasta_año": until_year,
         "archivo": filepath,
+        "artistas_procesados": resultados,
+        "artistas_fallidos": artistas_fallidos,
+        "total_nuevos_registros": sum(resultado["nuevos_registros"] for resultado in resultados),
     }

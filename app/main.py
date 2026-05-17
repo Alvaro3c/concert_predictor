@@ -1,7 +1,10 @@
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes import predict, data_pipeline
 import uvicorn
+
+load_dotenv()
 
 app = FastAPI(
     title="Predictor de Conciertos",

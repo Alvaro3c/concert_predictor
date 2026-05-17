@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query
-from app.modules.scrapper import run
+from app.modules.scrapper import scrapear_conciertos
 from app.modules.normalisation import normalise_concerts
 from app.modules.features.artist_global_features import enriquecer_conciertos
 from app.modules.features.artist_tour_features import enriquecer_tour_features
@@ -15,12 +15,12 @@ RUTA_CONCIERTOS_ENRIQUECIDOS = "data/processed/conciertos_enriquecido.jsonl"
 RUTA_CONCERTS_RAW = "data/raw/concerts.jsonl"
 
 @router.post("/scrape")
-def scrape_concerts(artist: str, until_year: int | None = Query(None)):
-    """Scrapea conciertos de concertarchives y los guarda en JSONL."""
+def scrape_concerts(artists_names: list[str] = Query(...), until_year: int | None = Query(None)):
+    """Scrapea conciertos de concertarchives para una lista de artistas y los guarda en JSONL."""
     try:
-        return run(artist, until_year)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return scrapear_conciertos(artists_names, until_year)
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
 
 
 @router.post("/process/normalise")

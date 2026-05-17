@@ -6,6 +6,14 @@ import random
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
+from config import (
+    EXTRA_STEALTH_MODE,
+    STEALTH_DELAY_MIN_S,
+    STEALTH_DELAY_MAX_S,
+    STEALTH_PROBABILIDAD_PAUSA_FANTASMA,
+    STEALTH_PAUSA_LARGA_MIN_S,
+    STEALTH_PAUSA_LARGA_MAX_S,
+)
 
 
 # Separadores de rango de fechas: en dash (–) y em dash (—)
@@ -216,8 +224,22 @@ def acumular_hasta_año(acumulado: list[dict], conciertos: list[dict], until_yea
 
 def human_delay(min_s: float = 6.0, max_s: float = 20.0) -> None:
     # Pausa aleatoria para simular comportamiento humano entre peticiones
+    if EXTRA_STEALTH_MODE:
+        min_s = STEALTH_DELAY_MIN_S
+        max_s = STEALTH_DELAY_MAX_S
     pausa = random.uniform(min_s, max_s)
     time.sleep(pausa)
+
+
+def _maybe_pausa_larga() -> None:
+    # Dispara una pausa de 8-12 min con la probabilidad configurada en STEALTH_PROBABILIDAD_PAUSA_FANTASMA
+    if not EXTRA_STEALTH_MODE:
+        return
+    if random.random() < STEALTH_PROBABILIDAD_PAUSA_FANTASMA:
+        pausa = random.uniform(STEALTH_PAUSA_LARGA_MIN_S, STEALTH_PAUSA_LARGA_MAX_S)
+        minutos = round(pausa / 60, 1)
+        print(f"[scraper] Modo fantasma: pausa larga de {minutos} min.")
+        time.sleep(pausa)
 
 
 def load_existing_keys(filepath: str) -> set[tuple]:
@@ -296,6 +318,7 @@ def scrapear_paginas(
             break
 
         human_delay()
+        _maybe_pausa_larga()
         url = f"{url_base}?page={pagina}"
         print(f"[scraper] Página {pagina}/{total_paginas} → {url}")
 

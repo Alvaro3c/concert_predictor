@@ -31,7 +31,7 @@ from app.libraries.train_metrics_utils import (
     construir_mascara_tramo_d,
     log_metrics_to_file,
 )
-from app.libraries.train_model_io import save_feature_importance, save_model
+from app.libraries.train_model_io import save_encoders, save_feature_importance, save_model
 from app.libraries.train_split_utils import temporal_split_by_artist
 from app.libraries.train_hyperparameter_utils import buscar_hiperparametros
 from config import (
@@ -412,6 +412,7 @@ def train_pipeline(ruta_jsonl: str, directorio_salida: str) -> dict:
     print("[2/7] Calculando features y target...", flush=True)
     features_df, target_serie, nombres_features = preparar_features(dataframe)
     print(f"[2/7] Features listas — {len(features_df)} filas tras warmup, {len(nombres_features)} features", flush=True)
+    save_encoders(_encoder_artista, _encoder_pais, directorio_salida)
 
     print("[3/7] Dividiendo train/test temporalmente por artista...", flush=True)
     df_para_split = features_df.assign(**{NOMBRE_TARGET: target_serie.values})

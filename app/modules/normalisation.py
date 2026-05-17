@@ -93,13 +93,28 @@ def normalise_concerts() -> dict:
                 registros_por_artista[clave_artista] = []
             registros_por_artista[clave_artista].append(registro)
 
-    # Segunda pasada: deduplicar por solapamiento de fechas y escribir
+    # Segunda pasada: deduplicar por solapamiento y recopilar en memoria
+    todos_los_registros: list[dict] = []
+    for registros in registros_por_artista.values():
+        registros_validos, duplicados = deduplicar_por_solapamiento(registros)
+        total_duplicados += duplicados
+        todos_los_registros.extend(registros_validos)
+
+    # Asignar ids únicos a registros que no los tienen, continuando desde el último existente
+    ultimo_id_existente = max(
+        (registro["id"] for registro in todos_los_registros if registro.get("id") is not None),
+        default=0,
+    )
+    contador_id = ultimo_id_existente + 1
+    for registro in todos_los_registros:
+        if registro.get("id") is None:
+            registro["id"] = contador_id
+            contador_id += 1
+
+    # Escribir todos los registros con ids asignados
     with open(ruta_destino, "w", encoding="utf-8") as archivo_destino:
-        for registros in registros_por_artista.values():
-            registros_validos, duplicados = deduplicar_por_solapamiento(registros)
-            total_duplicados += duplicados
-            for registro in registros_validos:
-                archivo_destino.write(json.dumps(registro, ensure_ascii=False) + "\n")
+        for registro in todos_los_registros:
+            archivo_destino.write(json.dumps(registro, ensure_ascii=False) + "\n")
 
     resumen = {
         "total_procesados": total_procesados,
