@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from app.libraries.date_utils import obtener_estacion
+from app.libraries.hf_dataset_utils import asegurar_dataset_local
 from app.libraries.train_data_validation import COLUMNAS_FEATURES
 from app.libraries.train_feature_utils import encode_season
 from app.libraries.train_model_io import load_encoders
@@ -30,6 +31,7 @@ def cargar_historial_artista(ruta_jsonl: str, nombre_artista: str) -> pd.DataFra
     Lanza FileNotFoundError si el fichero no existe.
     Lanza ValueError si el artista no aparece en el dataset.
     """
+    asegurar_dataset_local(ruta_jsonl)
     ruta = Path(ruta_jsonl)
     if not ruta.exists():
         raise FileNotFoundError(f"No se encontró el fichero JSONL en: {ruta_jsonl}")

@@ -9,6 +9,7 @@ import pandas as pd
 from lightgbm import LGBMClassifier, early_stopping, log_evaluation
 from sklearn.preprocessing import LabelEncoder
 
+from app.libraries.hf_dataset_utils import asegurar_dataset_local
 from app.libraries.train_data_validation import (
     COLUMNAS_FEATURES,
     COLUMNAS_MINIMAS,
@@ -122,6 +123,7 @@ def cargar_y_validar_dataset(ruta_jsonl: str) -> pd.DataFrame:
     Lanza FileNotFoundError si el fichero no existe.
     Lanza ValueError si alguna validación falla.
     """
+    asegurar_dataset_local(ruta_jsonl)
     ruta = Path(ruta_jsonl)
     if not ruta.exists():
         raise FileNotFoundError(f"No se encontró el dataset en: {ruta_jsonl}")

@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import predict, data_pipeline
+from app.routes import predict, data_pipeline, catalog
 import uvicorn
 
 load_dotenv()
@@ -15,6 +15,7 @@ app = FastAPI(
 # Rutas
 app.include_router(predict.router)
 app.include_router(data_pipeline.router)
+app.include_router(catalog.router)
 
 # CORS (para que el frontend pueda llamar desde otro dominio)
 app.add_middleware(

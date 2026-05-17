@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query
+from app.libraries.hf_dataset_utils import subir_dataset_a_hf, RUTA_LOCAL_DATASET
 from app.modules.scrapper import scrapear_conciertos
 from app.modules.normalisation import normalise_concerts
 from app.modules.features.artist_global_features import enriquecer_conciertos
@@ -36,20 +37,33 @@ def process_normalise():
 
 @router.post("/process/enrich-features")
 def process_enrich_features():
-    """Pipeline completo de features: global → tour → country → country_global → context."""
+    """Pipeline completo de features: global → tour → country → country_global → context. Sube el resultado a HuggingFace."""
     try:
         resultado_global         = enriquecer_conciertos()
         resultado_tour           = enriquecer_tour_features()
         resultado_country        = enriquecer_country_features()
         resultado_country_global = enriquecer_country_global_features()
         resultado_context        = enriquecer_context_features()
+        resultado_subida         = subir_dataset_a_hf(RUTA_CONCIERTOS_ENRIQUECIDOS)
         return {
             "global":         resultado_global,
             "tour":           resultado_tour,
             "country":        resultado_country,
             "country_global": resultado_country_global,
             "context":        resultado_context,
+            "subida_hf":      resultado_subida,
         }
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
+
+
+@router.post("/upload-dataset")
+def upload_dataset():
+    """Sube el dataset enriquecido actual a HuggingFace sin necesidad de regenerarlo."""
+    try:
+        return subir_dataset_a_hf(RUTA_LOCAL_DATASET)
     except FileNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error))
     except Exception as error:
@@ -67,5 +81,3 @@ def train_model():
         raise HTTPException(status_code=422, detail=str(error))
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
-
-

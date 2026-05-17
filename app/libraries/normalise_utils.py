@@ -6,13 +6,122 @@ PATRON_ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 CIUDADES_INVALIDAS = {"OCEAN", "N/A", "Vacío", ""}
 
 NORMALIZACION_PAISES = {
-    "NZ": "New Zealand",
-    "UK": "United Kingdom",
-    "USA": "United States",
-    "US": "United States",
+    # --- Valores inválidos o no geocalizables → eliminar ---
     "Vacío": None,
     "N/A": None,
     "": None,
+    "ONLINE": None,       # conciertos online sin ubicación física
+    "Komplex 457": None,  # nombre de venue, no de país
+    "Republic Of": None,  # fragmento de nombre incompleto
+
+    # --- Códigos ISO alpha-2 y alpha-3 de países ---
+    "UK": "United Kingdom",
+    "US": "United States",
+    "USA": "United States",
+    "NZ": "New Zealand",
+    "DE": "Germany",
+    "NL": "Netherlands",
+    "FIN": "Finland",
+    "AUS": "Australia",
+    "VE": "Venezuela",
+
+    # --- Estados de EE.UU. (abreviaturas de 2 letras y nombres) ---
+    "AZ": "United States",
+    "CA": "United States",
+    "CO": "United States",
+    "FL": "United States",
+    "IA": "United States",
+    "ID": "United States",
+    "IL": "United States",
+    "IN": "United States",
+    "LA": "United States",
+    "MA": "United States",
+    "MD": "United States",
+    "MI": "United States",
+    "MI USA": "United States",
+    "MN": "United States",
+    "MT": "United States",
+    "N.Y.": "United States",
+    "NC": "United States",
+    "NE": "United States",
+    "NY": "United States",
+    "OH": "United States",
+    "Ohio": "United States",
+    "OK": "United States",
+    "OR": "United States",
+    "PA": "United States",
+    "SC": "United States",
+    "TN": "United States",
+    "TX": "United States",
+    "Texas": "United States",
+    "UT": "United States",
+    "VA": "United States",
+    "VI": "United States",  # Islas Vírgenes de EE.UU.
+    "WA": "United States",
+    "WI": "United States",
+    "WV": "United States",
+    "WY": "United States",
+    "california": "United States",
+
+    # --- Provincias de Canadá ---
+    "AB": "Canada",   # Alberta
+    "BC": "Canada",   # British Columbia
+    "ON": "Canada",   # Ontario
+    "QC": "Canada",   # Quebec
+    "Qc": "Canada",
+    "SK": "Canada",   # Saskatchewan
+
+    # --- Estados y territorios de Australia ---
+    "NSW": "Australia",          # New South Wales
+    "QLD": "Australia",          # Queensland
+    "VIC": "Australia",          # Victoria
+    "Milsons Point": "Australia", # suburbio de Sídney
+
+    # --- Estados de Brasil ---
+    "SP": "Brazil",    # São Paulo
+
+    # --- Nombres alternativos y traducciones de países ---
+    "Allemagne": "Germany",       # francés
+    "Deutschland": "Germany",     # alemán
+    "West Germany": "Germany",
+    "Breisach am Rhein": "Germany", # ciudad alemana
+
+    "The Netherlands": "Netherlands",
+
+    "Czech Replubic": "Czech Republic",  # typo
+    "Czechia": "Czech Republic",
+
+    "Russian Federation": "Russia",
+
+    "Myanmar (Burma)": "Myanmar",
+
+    "Viet Nam": "Vietnam",
+
+    "Slovak Republic": "Slovakia",
+
+    "England": "United Kingdom",
+    "Scotland": "United Kingdom",
+    "Wales UK": "United Kingdom",
+    "London": "United Kingdom",   # ciudad del Reino Unido
+    "Suffolk": "United Kingdom",  # condado inglés
+
+    "Alicante": "Spain",   # ciudad española
+    "Lisboa": "Portugal",  # ciudad portuguesa
+    "Gurten": "Switzerland",         # localidad suiza (festival Gurtenfestival)
+    "Taguig Philippines": "Philippines",
+
+    "Ελλάδα": "Greece",  # nombre griego de Grecia
+
+    "New Zealand.": "New Zealand",  # punto final sobrante
+
+    "Bosnia & Herzegovina": "Bosnia and Herzegovina",
+    "Bosnia And Herzegovina": "Bosnia and Herzegovina",
+
+    "Saint Kitts And Nevis": "Saint Kitts and Nevis",
+    "Trinidad And Tobago": "Trinidad and Tobago",
+
+    # --- Entradas ambiguas o sin país identificable → eliminar ---
+    "Paraná": None,  # puede ser estado de Brasil o ciudad de Argentina; ambiguo
 }
 
 VENUES_TV = {
