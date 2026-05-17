@@ -20,7 +20,7 @@ app.include_router(catalog.router)
 # CORS (para que el frontend pueda llamar desde otro dominio)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En producción: especificar dominio del frontend
+    allow_origins=["https://concert-predictor-client.vercel.app"],  # En producción: especificar dominio del frontend
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
