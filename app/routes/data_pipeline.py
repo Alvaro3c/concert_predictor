@@ -20,8 +20,8 @@ def scrape_concerts(artists_names: list[str] = Query(...), until_year: int | Non
     """Scrapea conciertos de concertarchives para una lista de artistas y los guarda en JSONL."""
     try:
         return scrapear_conciertos(artists_names, until_year)
-    except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Error durante el scraping.")
 
 
 @router.post("/process/normalise")
@@ -29,10 +29,10 @@ def process_normalise():
     """Normaliza el campo fecha del JSONL crudo y guarda el resultado en interim."""
     try:
         return normalise_concerts()
-    except FileNotFoundError as error:
-        raise HTTPException(status_code=404, detail=str(error))
-    except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Fichero de datos raw no encontrado.")
+    except Exception:
+        raise HTTPException(status_code=500, detail="Error durante la normalización.")
 
 
 @router.post("/process/enrich-features")
@@ -53,10 +53,10 @@ def process_enrich_features():
             "context":        resultado_context,
             "subida_hf":      resultado_subida,
         }
-    except FileNotFoundError as error:
-        raise HTTPException(status_code=404, detail=str(error))
-    except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Fichero de datos procesados no encontrado.")
+    except Exception:
+        raise HTTPException(status_code=500, detail="Error durante el enriquecimiento de features.")
 
 
 @router.post("/upload-dataset")
@@ -64,10 +64,10 @@ def upload_dataset():
     """Sube el dataset enriquecido actual a HuggingFace sin necesidad de regenerarlo."""
     try:
         return subir_dataset_a_hf(RUTA_LOCAL_DATASET)
-    except FileNotFoundError as error:
-        raise HTTPException(status_code=404, detail=str(error))
-    except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Dataset local no encontrado.")
+    except Exception:
+        raise HTTPException(status_code=500, detail="Error al subir el dataset.")
 
 
 @router.post("/train/model-predict")
@@ -75,9 +75,9 @@ def train_model():
     """Entrena/reentrena el modelo con los datos procesados."""
     try:
         return train_pipeline(RUTA_CONCIERTOS_ENRIQUECIDOS, "models/model_predict")
-    except FileNotFoundError as error:
-        raise HTTPException(status_code=404, detail=str(error))
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error))
-    except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Dataset de entrenamiento no encontrado.")
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Los datos no superaron la validación previa al entrenamiento.")
+    except Exception:
+        raise HTTPException(status_code=500, detail="Error durante el entrenamiento del modelo.")

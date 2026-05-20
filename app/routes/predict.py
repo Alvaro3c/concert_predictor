@@ -9,11 +9,11 @@ router = APIRouter(tags=["prediction"])
 def predict(artist: str, country: str) -> dict:
     try:
         return predecir_retorno(artist, country)
-    except FileNotFoundError as error:
-        raise HTTPException(status_code=404, detail=str(error))
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error))
-    except RuntimeError as error:
-        raise HTTPException(status_code=502, detail=str(error))
-    except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Artista o país no encontrado en el dataset.")
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Datos de entrada inválidos.")
+    except RuntimeError:
+        raise HTTPException(status_code=502, detail="Error al conectar con el servicio de explicaciones. Inténtalo de nuevo.")
+    except Exception:
+        raise HTTPException(status_code=500, detail="Error interno del servidor.")
