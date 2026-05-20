@@ -1,12 +1,16 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.modules.predict_model import predecir_retorno
 
 router = APIRouter(tags=["prediction"])
+limitador = Limiter(key_func=get_remote_address)
 
 
 @router.get("/predict")
-def predict(artist: str, country: str) -> dict:
+@limitador.limit("15/minute")
+def predict(request: Request, artist: str, country: str) -> dict:
     try:
         return predecir_retorno(artist, country)
     except FileNotFoundError:
