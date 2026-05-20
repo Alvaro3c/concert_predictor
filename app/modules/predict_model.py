@@ -6,6 +6,7 @@ import numpy as np
 
 from app.libraries.predict_feature_utils import obtener_features_para_inferencia
 from app.libraries.predict_llm_utils import generar_explicacion_natural
+from app.libraries.sanitizacion_inputs import sanitizar_nombre_artista, sanitizar_nombre_pais
 from app.libraries.train_metrics_utils import UMBRAL_GAP_TRAMO_D, UMBRAL_VISITAS_TRAMO_D
 from app.libraries.train_model_io import load_model
 from config import UMBRAL_TRAMO_B, UMBRAL_TRAMO_C
@@ -55,6 +56,9 @@ def predecir_retorno(nombre_artista: str, nombre_pais: str) -> dict:
     Lanza ValueError si el artista o el país no tienen historial en el dataset.
     Lanza FileNotFoundError si el modelo o los encoders no existen en disco.
     """
+    nombre_artista = sanitizar_nombre_artista(nombre_artista)
+    nombre_pais = sanitizar_nombre_pais(nombre_pais)
+
     vector_features, historial = obtener_features_para_inferencia(
         RUTA_JSONL, nombre_artista, nombre_pais, DIRECTORIO_ENCODERS
     )
