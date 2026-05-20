@@ -1,139 +1,252 @@
 # Concerts predictor backend
 
+## Entorno de desarrollo
+
+### Descripción del proyecto
+
+Concert Return Predictor es un backend desarrollado en Python que predice si un artista musical volverá a tocar en un país determinado, y en qué tramo temporal lo hará (A: rápido, B: medio, C: largo, D: sin historial suficiente). El sistema combina scraping de datos históricos de conciertos, ingeniería de features y un clasificador LightGBM, completado con una explicación en lenguaje natural generada por un LLM.
+
+### Instalación y arranque
+
+https://concert-predictor-client.vercel.app/
+
+---
+
+### Verificación del entorno
+
+Para confirmar que todas las piezas responden correctamente antes de empezar a desarrollar:
+
+1. **HuggingFace** — ejecutar `POST /data-pipeline/upload-dataset` con el dataset local. Si devuelve `{ "subido": true }` la conexión funciona.
+2. **Groq** — ejecutar `GET /predict?artist=Green Day&country=Spain`. Si la respuesta incluye el campo `explicacion` con texto coherente, el LLM está operativo.
+3. **Scraper** — ejecutar `POST /data-pipeline/scrape?artists_names=Radiohead` y verificar que `nuevos_registros > 0`.
+
+## Selección de entorno y proveedor de IA
+
+### Stack
+- **Python 3.11 + FastAPI** como núcleo del backend
+- **Visual Studio Code** como editor, con las extensiones Python y Pylance
+- **LightGBM** para el modelo de clasificación por tramos
+- **GitHub** como repositorio (usuario `Alvaro3c`, rama principal `main`, desarrollo en `develop`)
+- **HuggingFace Hub** como almacenamiento del dataset enriquecido, accesible desde cualquier entorno sin necesidad de subir ficheros manualmente
+
+### Proveedor de IA seleccionado
+
+Se eligió **Groq** como proveedor LLM, usando el modelo **Llama 3** para generar la explicación en lenguaje natural que acompaña cada predicción en el endpoint `/predict`.
+
+Los motivos de la elección frente a OpenAI o Gemini:
+
+- **Velocidad** — Groq ofrece inferencia notablemente más rápida gracias a su hardware LPU, lo que mantiene el tiempo de respuesta del endpoint por debajo de 2 segundos incluso incluyendo la llamada al LLM
+- **Coste** — capa gratuita suficiente para el volumen de peticiones del proyecto
+- **Integración sencilla** — API compatible con el estándar OpenAI, lo que reduce el código de integración a unas pocas líneas
+
+### Validación del entorno
+
+Se realizó una petición real al endpoint de predicción una vez el modelo estaba entrenado:
+
+```
+GET /predict?artist=Green-Day&country=Spain
+```
+
+Respuesta obtenida:
+
+```json
+{
+  "artista": "Green Day",
+  "pais": "Spain",
+  "tramo_predicho": "A",
+  "probabilidades": { "A": 0.71, "B": 0.19, "C": 0.07, "D": 0.03 },
+  "ultimo_concierto_conocido": "2024-06-15",
+  "gap_medio_historico_dias": 398,
+  "total_visitas_registradas": 9,
+  "explicacion": "Green Day ha visitado España 9 veces con un intervalo medio de 398 días entre visitas. Su patrón histórico y actividad reciente sugieren un retorno en menos de 18 meses."
+}
+```
+
+El campo `tramo_predicho: "A"` confirma que el modelo clasificó correctamente (retorno en menos de 18 meses), las probabilidades suman 1.0, y el campo `explicacion` demuestra que la llamada a Groq devolvió texto coherente con los datos reales del historial. El entorno funciona de extremo a extremo.
+
+## Información y conocimiento del sistema (2.3)
+
+### Qué información necesita el sistema
+
+El predictor opera con dos fuentes de conocimiento:
+
+- **Dataset de conciertos históricos** — 113.507 registros de conciertos entre 2001 y 2026 para los 95 artistas del catálogo. Cada registro contiene artista, país, fecha y las features calculadas (gaps históricos, frecuencia de visitas, contexto de gira, estación, etc.). Es la única fuente de verdad sobre el comportamiento pasado de cada artista.
+- **Modelo entrenado + encoders** — el clasificador LightGBM y los encoders de artista y país persistidos en disco. Sin ellos el sistema no puede producir probabilidades por tramo.
+
+### Cómo está almacenada y cómo se accede
+
+| Recurso | Dónde vive | Cómo se accede |
+|---|---|---|
+| Dataset enriquecido | HuggingFace Hub (`Alvaro3c/alvaro-3c-concerts-dataset-from-2001-2026`) | Se descarga automáticamente al disco local en la primera petición si no existe (`data/processed/conciertos_enriquecido.jsonl`) |
+| Modelo LightGBM | Disco local (`models/model_predict/model.joblib`) | Cargado en memoria en cada petición a `/predict` |
+| Encoders | Disco local (`models/model_predict/`) | Cargados junto al modelo |
+
+La búsqueda dentro del dataset no usa índice: en cada predicción se carga el JSONL completo en un DataFrame y se filtra por artista y país con `groupby`. Funciona para el volumen actual (~81k registros) pero no escalaría a catálogos grandes.
+
+### Huecos actuales y soluciones que los cubrirían
+
+1. **Sin historial de predicciones** — el sistema no registra nada de lo que predice. No hay forma de saber si el modelo acierta o se degrada con el tiempo sin revisión manual. Una tabla en base de datos (PostgreSQL o SQLite) que registre cada petición, el tramo predicho y —cuando se conozca— el resultado real, permitiría evaluar el modelo en producción.
+
+2. **Búsqueda no indexada** — cargar 81k registros en memoria para filtrar por artista y país es ineficiente bajo carga concurrente. Migrar el dataset a una base de datos con índices sobre `artista` y `pais` reduciría la búsqueda de lineal a logarítmica.
+
+3. **Dataset estático** — el catálogo no se actualiza automáticamente. Si un artista del catálogo da nuevos conciertos, el modelo trabaja con información desactualizada hasta que se vuelva a ejecutar el scraper manualmente.
+
+## Despliegue (2.4)
+
+### Frontend — Vercel
+
+El cliente está desplegado en Vercel conectado directamente al repositorio de GitHub. Cada push a `main` dispara un redeploy automático.
+
+URL pública: https://concert-predictor-client.vercel.app
+
+### Backend — Render
+
+El backend FastAPI está desplegado en Render con un plan de pago para evitar el cold start que introduce el plan gratuito (los servicios gratuitos de Render se duermen tras 15 minutos de inactividad, lo que causa latencias de 30-60 segundos en la primera petición).
+
+Las variables de entorno (`GROQ_API_KEY`, `HF_DATASET_TOKEN`, `HF_DATASET_REPO`) se configuran en el panel de Render y no forman parte del repositorio.
+
+### Dataset — HuggingFace Hub
+
+El dataset enriquecido (`conciertos_enriquecido.jsonl`) vive en el repositorio `Alvaro3c/alvaro-3c-concerts-dataset-from-2001-2026` de HuggingFace. El backend lo descarga automáticamente al disco local en la primera petición a `/predict` si no está disponible en caché. Esto desacopla el dataset del código y permite actualizarlo sin redesplegar el backend.
+
+## Validación del modelo
+
+El clasificador LightGBM se evalúa automáticamente al final de cada entrenamiento sobre un conjunto de test que nunca ha visto. El split es **temporal por artista** (80% de los conciertos más antiguos para train, 20% más recientes para test), lo que garantiza que el modelo no evalúa sobre datos que podría haber visto durante el entrenamiento.
+
+Las métricas se persisten en `models/model_predict/metrics.json` tras cada ejecución de `POST /data-pipeline/train/model-predict`.
+
+### Métricas del último entrenamiento (2026-05-17)
+
+El test set contiene **4.475 registros reales** distribuidos entre los cuatro tramos:
+
+| Tramo | Significado | Casos reales | Recall | Precisión | F1 |
+|---|---|---|---|---|---|
+| A | Retorno en menos de 1 año | 3.453 | 74,2% | 92,7% | 82,4% |
+| B | Retorno entre 1 y 2 años | 642 | 39,7% | 26,5% | 31,8% |
+| C | Retorno entre 2 y 4 años | 313 | 55,3% | 25,4% | 34,8% |
+| D | Sin historial suficiente (regla explícita) | 67 | 100% | 100% | 100% |
+
+**Accuracy global: 68,3%**
+
+### Interpretación
+
+El modelo tiene un comportamiento asimétrico que refleja el desequilibrio del dataset: el 77% de los casos son Tramo A, por lo que el modelo aprende bien ese patrón. El Tramo B es el más difícil de predecir (F1 31,8%), algo esperable dado que es la clase intermedia con mayor ambigüedad en los límites.
+
+El Tramo D tiene métricas perfectas porque no lo aprende el modelo — se asigna por regla determinista antes de llamar al clasificador: si el artista tiene 0 visitas previas al país o un gap medio histórico superior a 4 años, el sistema lo clasifica directamente como D sin consultar al modelo.
+
 ## Inicializar
 - uvicorn app.main:app --reload 
 
 ## Rutas
-1. SCRAPING (ejecuta acción, sin input del usuario)
-   GET /admin/scrape/concerts
-   - Inicia el scraper
-   - Guarda en JSONL
-   - Response: { status: "completed", records: 1250, timestamp: "..." }
 
-2. PROCESSING (ejecuta acción basado en datos existentes)
-   GET /admin/process/intervals
-   - Lee JSONL existente
-   - Calcula intervals
-   - Guarda en DB
-   - Response: { status: "completed", intervals_calculated: 1250 }
+### Catálogo (`/catalog`)
 
-3. MODEL TRAINING (ejecuta acción) (POST porque modifica cosas, ya veremos si se mantiene así)
-   POST /admin/train/model
-   - Lee datos procesados
-   - Entrena modelo
-   - Guarda modelo
-   - Response: { status: "completed", model_version: "v1.2" }
+1. **GET /catalog/countries**
+   - Devuelve los países únicos disponibles en el dataset
+   - Response: `["Spain", "United States", "Germany", ...]`
 
-4. PREDICTION (recibe datos, retorna resultado) ✅ ESTO SÍ ES POST
-   POST /predict
-   - Input: { artist: "Metallica", country: "Spain" }
-   - Output: { prediction: "18 months", confidence: 0.85 }
+2. **GET /catalog/artists**
+   - Devuelve los artistas únicos disponibles en el dataset
+   - Response: `["Green Day", "Metallica", "Radiohead", ...]`
 
-## Grupos de música de los cuales podemos obtener información
-1. Sum 41
-2. Millencolin
-3. Rancid
-4. Blink 182
-5. Rise Against
-6. The Hotelier
-7. Incubus
-8. Silvestein
-9. Oasis
-10. The hellacopers
-11. Green Day
-12. Red Hot Chili Pepers
-13. Swedish House Mafia
-14. The Weekeend
-15. Slayer
-16. The Killers
-17. Beady Eye
-18. Linking Park
-19. The Koxx
-20. Radiohead
-21. Limp Bizcuit
-22. Lamb of God
-23. Suicide Silence
-24. Killswitch Engage
-25. Bring me the Horizon
-26. Halestorm
-27. Meshuggah
-28. Enter Shikari
-29. gugudan
-30. All That Remains
-31. Dio
-32. Bad City
-33. A-ha
-34. Our Last Night
-35. Lynyrd Skynyrd
-36. Death Cab For Cutie
-37. Comeback kid
-38. Stick To Your Guns
-39. A day To Remember
-40. Sugar Cult
-41. Jimmy Eat World
-42. The Story So Far
-43. Pennywise
-44. Taking Back Sunday
-45. Zebrahead
-46. Iron Maiden
-47. The Goo Goo Dolls
-48. Foals
-49. Alkaline trio
-50. My Chemical Romance
-51. Coldplay
-52. The Black Keys
-53. Samiam
-54. Donots
-55. LP
-56. Four Years Strong
-57. Sublime
-58. Kodaline
-59. Twentyone Pilots
-60. The Luminieers
-61. Xavier Rudd
-62. Pearl JAm
-63. Jack Johnson
-64. Mr scruff
-65. The Stooges
+---
 
-## Implemetacion artist global features
-Resumen de implementación
-Archivos creados / modificados
-app/libraries/date_utils.py — 3 funciones puras de fecha:
+### Pipeline de datos (`/data-pipeline`)
 
-parsear_fecha(fecha_str) → datetime | None
-dias_entre_fechas(fecha_anterior, fecha_actual) → int
-años_entre_fechas(fecha_primera, fecha_actual) → float
-app/libraries/window_utils.py — 4 funciones puras de ventana temporal (usan pd.Series internamente para operaciones vectorizadas):
+3. **POST /data-pipeline/scrape**
+   - Query params: `artists_names` (lista de strings, requerido), `until_year` (int, opcional)
+   - Scrapea conciertos de concertarchives.org para cada artista y los guarda en `data/raw/concerts.jsonl`
+   - Response:
+     ```json
+     {
+       "hasta_año": 2010,
+       "archivo": "data/raw/concerts.jsonl",
+       "artistas_procesados": [
+         {
+           "artista": "Green Day",
+           "slug": "green-day",
+           "paginas_scrapeadas": 12,
+           "nuevos_registros": 340,
+           "duplicados_evitados_esta_sesion": 5
+         }
+       ],
+       "artistas_fallidos": [],
+       "total_nuevos_registros": 340
+     }
+     ```
 
-conciertos_en_ventana(fechas, fecha_actual, dias) — cuenta con closed="left" lógico
-dias_desde_ultimo_concierto(fechas, fecha_actual) → int | None
-calcular_tendencia_actividad(fechas, fecha_actual) → ratio o None si 5-year window vacía
-años_observados_artista(fechas, fecha_actual) → float | None
-app/modules/features/artist_global_features.py — 2 funciones:
+4. **POST /data-pipeline/process/normalise**
+   - Normaliza fechas, filtra registros inválidos y deduplica el JSONL crudo
+   - Lee de `data/raw/concerts.jsonl`, escribe en `data/interim/normalized_concerts.jsonl`
+   - Response:
+     ```json
+     {
+       "total_procesados": 81000,
+       "correctos_sin_cambio": 70000,
+       "normalizados": 9000,
+       "errores": 200,
+       "eliminados": 800,
+       "duplicados": 150
+     }
+     ```
 
-calcular_features_artista_global(registros_previos, fecha_actual) — calcula las 6 features para un registro
-enriquecer_conciertos() — pipeline completo: carga el JSONL en DataFrame, agrupa por artista con groupby antes del bucle, filtra con fecha estrictamente anterior, guarda en data/processed/conciertos_enriquecido.jsonl
-app/routes/data_pipeline.py — endpoint añadido:
+5. **POST /data-pipeline/process/enrich-features**
+   - Ejecuta el pipeline completo de features en orden: global → tour → country → country_global → context
+   - Sube el resultado a HuggingFace al finalizar
+   - Lee de `data/interim/normalized_concerts.jsonl`, escribe en `data/processed/conciertos_enriquecido.jsonl`
+   - Response:
+     ```json
+     {
+       "global":         { "registros_procesados": 81000, "errores_fecha": 0 },
+       "tour":           { "registros_procesados": 81000 },
+       "country":        { "registros_procesados": 81000 },
+       "country_global": { "registros_procesados": 81000 },
+       "context":        { "registros_procesados": 81000 },
+       "subida_hf":      { "subido": true, "repo": "user/dataset", "fichero": "conciertos_enriquecido.jsonl" }
+     }
+     ```
 
-POST /data-pipeline/process/enrich-features
-app/modules/features/__init__.py — creado para hacer el subpaquete importable.
+6. **POST /data-pipeline/upload-dataset**
+   - Sube el dataset enriquecido existente a HuggingFace sin regenerarlo
+   - Response:
+     ```json
+     { "subido": true, "repo": "user/dataset", "fichero": "conciertos_enriquecido.jsonl" }
+     ```
 
-Garantías de no data leakage
-Para cada registro solo se usan conciertos del mismo artista con fecha < fecha_actual (estrictamente anterior), incluyendo el manejo correcto de fechas iguales el mismo día.
+7. **POST /data-pipeline/train/model-predict**
+   - Entrena el modelo LightGBM con los datos procesados y lo guarda en `models/model_predict/`
+   - Response:
+     ```json
+     {
+       "metricas": {
+         "bucket_accuracy_global": 0.78,
+         "bucket_accuracy_por_tramo": { "A": 0.82, "B": 0.65, "C": 0.71, "D": 1.0 }
+       },
+       "ruta_modelo": "models/model_predict/model.joblib"
+     }
+     ```
 
-Read C:\Users\black\AppData\Local\Temp\claude\c--master-ia-proyecto-final-backend\6676da6b-83f5-4835-a2fc-37a32dee3f3b\tasks\b0szzqvi0.output
-El pipeline completó correctamente. 81.066 registros procesados, 0 errores de fecha.
+---
 
-Los primeros registros de "A Day To Remember" muestran exactamente el comportamiento esperado:
+### Predicción (`/predict`)
 
-Primer concierto (2004-04-02): todas las features en None o 0 — sin historial previo
-Segundo concierto (2004-06-03): 1 concierto en ventana de 1 año, 62 días desde el anterior, años_observados_artista: 0.17
-Tercer concierto (2004-07-31): acumulación correcta de 2 conciertos previos
-El archivo data/processed/conciertos_enriquecido.jsonl está listo con las 6 features calculadas sin data leakage.
-
-## Estructura de entrenamiento de modelo
-![alt text](image.png)
+8. **GET /predict**
+   - Query params: `artist` (str), `country` (str)
+   - Predice el tramo de retorno de un artista a un país basándose en su historial
+   - Tramos: **A** (retorno rápido) · **B** (retorno medio) · **C** (retorno largo) · **D** (sin historial suficiente)
+   - Response:
+     ```json
+     {
+       "artista": "Green Day",
+       "pais": "Spain",
+       "tramo_predicho": "A",
+       "probabilidades": { "A": 0.72, "B": 0.18, "C": 0.07, "D": 0.03 },
+       "ultimo_concierto_conocido": "2023-06-15",
+       "gap_medio_historico_dias": 420,
+       "total_visitas_registradas": 8,
+       "explicacion": "Green Day ha visitado Spain 8 veces con un gap medio de 420 días..."
+     }
+     ```
 
 ## features para entrenar el modelo
 ### Artist Global Features
