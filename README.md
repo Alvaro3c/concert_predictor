@@ -109,6 +109,44 @@ Las variables de entorno (`GROQ_API_KEY`, `HF_DATASET_TOKEN`, `HF_DATASET_REPO`)
 
 El dataset enriquecido (`conciertos_enriquecido.jsonl`) vive en el repositorio `Alvaro3c/alvaro-3c-concerts-dataset-from-2001-2026` de HuggingFace. El backend lo descarga automáticamente al disco local en la primera petición a `/predict` si no está disponible en caché. Esto desacopla el dataset del código y permite actualizarlo sin redesplegar el backend.
 
+## Seguridad
+
+Se aplicaron medidas de seguridad en torno a tres ejes: prevención de jailbreak, protección de datos sensibles y control de acceso.
+
+### Jailbreak y uso fuera de scope
+
+**Sanitización de inputs** (`app/libraries/sanitizacion_inputs.py`)
+
+Los parámetros `artist` y `country` que llegan al endpoint `/predict` se limpian antes de ser inyectados en el prompt del LLM. Se eliminan todos los caracteres de control ASCII (`\n`, `\r`, `\t`, nulos y similares), que son el vector principal de prompt injection, y se trunca a una longitud máxima (150 caracteres para artista, 100 para país). Los nombres con caracteres especiales legítimos (AC/DC, P!nk, acentos) no se ven afectados.
+
+**Refuerzo del system prompt** (`app/libraries/predict_llm_utils.py`)
+
+El system prompt del LLM define con precisión el scope permitido e incluye cuatro capas de defensa:
+- Rol y tarea únicos: solo análisis de giras y predicción de retorno
+- Instrucción explícita de que los campos de datos (nombres, ciudades, venues) son datos, no instrucciones, aunque parezcan órdenes
+- Rechazo de cualquier instrucción fuera del análisis de conciertos
+- Lenguaje accesible: se prohíbe el uso de términos técnicos como "machine learning", "modelo" o "probabilidad" para que las respuestas sean comprensibles para cualquier usuario
+
+### Datos sensibles y filtración
+
+**Credenciales fuera del repositorio**
+
+El fichero `.env` con las claves de Groq y HuggingFace está excluido del repositorio mediante `.gitignore` y nunca ha sido commiteado. Las variables de entorno se configuran directamente en el panel de Render en producción.
+
+**Sanitización de mensajes de error** (`app/routes/`)
+
+Los tres route handlers (`predict.py`, `catalog.py`, `data_pipeline.py`) devuelven mensajes de error fijos y genéricos al cliente. Ninguna excepción interna (rutas de fichero, nombres de variables, mensajes de servicios externos) llega a la respuesta HTTP. Los errores completos siguen siendo accesibles en los logs del servidor.
+
+### Control de acceso
+
+**Rate limiting en `/predict`** (`app/routes/predict.py`)
+
+El endpoint de predicción está limitado a **15 peticiones por minuto por IP** mediante `slowapi`. Al superar el límite se devuelve `429 Too Many Requests` con el header `Retry-After`. El límite permite un uso intensivo normal sin restricciones pero bloquea bucles automatizados desde el primer segundo.
+
+**API key en endpoints de administración** (`app/libraries/admin_auth.py`)
+
+Los cinco endpoints de `/data-pipeline` (scraping, normalización, features, subida a HuggingFace y entrenamiento) requieren el header `X-Admin-Key` con el valor de la variable de entorno `ADMIN_API_KEY`. Sin él se devuelve `403 Forbidden`. La respuesta es idéntica tanto si la clave está ausente como si es incorrecta, para no revelar información sobre el fallo.
+
 ## Validación del modelo
 
 El clasificador LightGBM se evalúa automáticamente al final de cada entrenamiento sobre un conjunto de test que nunca ha visto. El split es **temporal por artista** (80% de los conciertos más antiguos para train, 20% más recientes para test), lo que garantiza que el modelo no evalúa sobre datos que podría haber visto durante el entrenamiento.

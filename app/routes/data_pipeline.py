@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from app.libraries.admin_auth import verificar_clave_admin
 from app.libraries.hf_dataset_utils import subir_dataset_a_hf, RUTA_LOCAL_DATASET
 from app.modules.scrapper import scrapear_conciertos
 from app.modules.normalisation import normalise_concerts
@@ -9,7 +10,7 @@ from app.modules.features.country_global_features import enriquecer_country_glob
 from app.modules.features.context_features import enriquecer_context_features
 from app.modules.train_model import train_pipeline
 
-router = APIRouter(prefix="/data-pipeline", tags=["data_pipeline"])
+router = APIRouter(prefix="/data-pipeline", tags=["data_pipeline"], dependencies=[Depends(verificar_clave_admin)])
 
 RUTA_CONCIERTOS_ENRIQUECIDOS = "data/processed/conciertos_enriquecido.jsonl"
 
