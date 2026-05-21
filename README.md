@@ -137,6 +137,16 @@ El fichero `.env` con las claves de Groq y HuggingFace está excluido del reposi
 
 Los tres route handlers (`predict.py`, `catalog.py`, `data_pipeline.py`) devuelven mensajes de error fijos y genéricos al cliente. Ninguna excepción interna (rutas de fichero, nombres de variables, mensajes de servicios externos) llega a la respuesta HTTP. Los errores completos siguen siendo accesibles en los logs del servidor.
 
+### Protección de datos y guardrails
+
+**Legislación de protección de datos (GDPR/LOPD)**
+
+No aplica. El sistema no recopila ni almacena ningún dato personal: no hay cuentas de usuario, sesiones ni registros de quién consulta qué. Todos los datos que maneja son conciertos de artistas públicos extraídos de fuentes públicas. Ninguna consulta queda vinculada a una persona identificable.
+
+**Guardrails**
+
+No son necesarios. Los guardrails (moderación de contenido, detección de toxicidad) están pensados para sistemas donde el usuario tiene libertad creativa sobre el input, como chatbots o generadores de texto abiertos. En este proyecto el LLM recibe un prompt completamente estructurado con datos históricos de conciertos y solo genera 3-5 frases sobre cuándo volverá un artista a un país. El espacio de respuesta posible es tan acotado que el riesgo de output problemático es prácticamente nulo. El system prompt reforzado cubre el margen residual.
+
 ### Control de acceso
 
 **Rate limiting en `/predict`** (`app/routes/predict.py`)
